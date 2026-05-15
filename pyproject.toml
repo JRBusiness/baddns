@@ -16,6 +16,7 @@ dependencies = [
     "python-dateutil==2.9.0.post0",
     "blasthttp>=0.2.0",
     "cloudcheck>=10,<11",
+    "httpx[socks]>=0.27.0",
 ]
 
 [project.urls]

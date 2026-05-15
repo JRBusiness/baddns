@@ -3,6 +3,7 @@
 # Black Lantern Security - https://www.blacklanternsecurity.com
 # @paulmmueller
 
+import os
 import re
 import sys
 import asyncio
@@ -105,6 +106,7 @@ async def execute_module(
     custom_nameservers,
     signatures,
     dns_client=None,
+    http_client=None,
     silent=False,
     direct_mode=False,
     min_confidence=None,
@@ -117,6 +119,7 @@ async def execute_module(
             custom_nameservers=custom_nameservers,
             signatures=signatures,
             dns_client=dns_client,
+            http_client=http_client,
             cli=True,
             direct_mode=direct_mode,
         )
@@ -187,6 +190,18 @@ async def _main():
         help="Minimum severity level to report. Levels: CRITICAL, HIGH, MEDIUM, LOW (exclude INFO)",
     )
 
+    parser.add_argument(
+        "-t",
+        "--targets",
+        help="File containing list of subdomains to analyze (one per line)",
+    )
+
+    parser.add_argument(
+        "-x",
+        "--proxy",
+        help="SOCKS5 or HTTP proxy URL (e.g. socks5://127.0.0.1:1080, http://127.0.0.1:8080)",
+    )
+
     parser.add_argument("target", nargs="?", type=validate_target, help="subdomain to analyze")
     args = parser.parse_args()
 
@@ -198,8 +213,30 @@ async def _main():
         print(f"{Fore.GREEN}{ascii_art_banner}{Style.RESET_ALL}")
         print_version()
 
-    if not args.target and not args.list_modules:
-        parser.error("the following arguments are required: target")
+    if not args.target and not args.targets and not args.list_modules:
+        parser.error("the following arguments are required: target or -t/--targets")
+
+    targets = []
+    if args.targets:
+        targets_file = args.targets
+        if not os.path.isfile(targets_file):
+            parser.error(f"targets file not found: {targets_file}")
+        with open(targets_file, "r") as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                try:
+                    validated = validate_target(line)
+                    targets.append(validated)
+                except argparse.ArgumentTypeError:
+                    log.warning(f"Skipping invalid target on line {line_num}: {line}")
+        if not targets:
+            parser.error(f"no valid targets found in {targets_file}")
+        log.info(f"Loaded {len(targets)} target(s) from {targets_file}")
+
+    if args.target:
+        targets.append(args.target)
 
     if args.list_modules:
         r = get_all_modules()
@@ -249,18 +286,29 @@ async def _main():
 
     dns_client = Client(custom_nameservers if custom_nameservers else get_system_resolvers())
 
-    for ModuleClass in modules_to_execute:
-        await execute_module(
-            ModuleClass,
-            args.target,
-            custom_nameservers,
-            signatures,
-            dns_client=dns_client,
-            silent=silent,
-            direct_mode=direct_mode,
-            min_confidence=args.min_confidence,
-            min_severity=args.min_severity,
-        )
+    http_client = None
+    if args.proxy:
+        from baddns.lib.proxyhttpclient import ProxyHTTPClient
+
+        http_client = ProxyHTTPClient(args.proxy)
+        log.info(f"Using proxy: {args.proxy}")
+
+    for target in targets:
+        if len(targets) > 1:
+            log.info(f"Scanning target: {target}")
+        for ModuleClass in modules_to_execute:
+            await execute_module(
+                ModuleClass,
+                target,
+                custom_nameservers,
+                signatures,
+                dns_client=dns_client,
+                http_client=http_client,
+                silent=silent,
+                direct_mode=direct_mode,
+                min_confidence=args.min_confidence,
+                min_severity=args.min_severity,
+            )
 
 
 def main():

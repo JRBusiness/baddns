@@ -14,7 +14,7 @@ def test_cli_validation_target(monkeypatch, capsys):
         cli.main()
         assert exit_mock.called
         captured = capsys.readouterr()
-        assert "the following arguments are required: target" in captured.err
+        assert "the following arguments are required: target or -t/--targets" in captured.err
 
 
 def test_cli_validation_customnameservers_valid(monkeypatch, capsys):
